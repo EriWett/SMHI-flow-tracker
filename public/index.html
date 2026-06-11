@@ -1491,7 +1491,14 @@
         const forecastStart = station.forecast[0];
         const forecastEnd = station.forecast[station.forecast.length - 1];
         const change = forecastStart && forecastEnd ? forecastEnd.value - forecastStart.value : null;
-        const observed = station.latestObserved;
+        const today = new Date();
+			today.setHours(0, 0, 0, 0);
+			const tomorrow = new Date(today);
+			tomorrow.setDate(tomorrow.getDate() + 1);
+
+			const forecastToday = station.forecast.find((point) =>
+			  point.time >= today.getTime() && point.time < tomorrow.getTime()
+			);
         const distance = station.observedStation && Number.isFinite(station.observedStation.distanceKm)
           ? `${station.observedStation.distanceKm.toFixed(1)} km`
           : "--";
@@ -1504,11 +1511,10 @@
             <h3><span class="color-dot" style="background:${stationColor(station.subid)}"></span>${station.label}</h3>
             <span class="badge">ID ${station.subid}</span>
           </header>
-          <div class="facts">
-            <div class="fact">
-              <span>Observed</span>
-              <strong>${observed ? `${formatFlow(observed.value)} m3/s` : "--"}</strong>
-            </div>
+          <div class="fact">
+			  <span>Forecast today</span>
+			  <strong>${forecastToday ? `${formatFlow(forecastToday.value)} m3/s` : "--"}</strong>
+			</div>
             <div class="fact">
               <span>Forecast end</span>
               <strong>${forecastEnd ? `${formatFlow(forecastEnd.value)} m3/s` : "--"}</strong>
