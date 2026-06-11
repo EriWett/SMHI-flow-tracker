@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMHI Flow Tracker</title>
+  <script>
+    if (window.location.protocol === "file:") {
+      window.location.replace("http://127.0.0.1:4175/");
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #d8faf6;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-2: rgba(238, 247, 248, 0.92);
+      --line: #b8d5da;
+      --line-strong: #8fb5bd;
+      --text: #132125;
+      --muted: #5f7076;
+      --muted-2: #839197;
+      --accent: #007c89;
+      --accent-dark: #005e66;
+      --accent-soft: #d9eff1;
+      --green: #207a4b;
+      --red: #b94444;
+      --amber: #a06414;
+      --shadow: 0 18px 42px rgba(9, 76, 89, 0.16);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      position: relative;
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        linear-gradient(135deg, rgba(2, 20, 24, 0.76) 0%, rgba(3, 52, 63, 0.58) 42%, rgba(6, 123, 139, 0.18) 100%),
+        url("./assets/river-water-background.png") center / cover fixed no-repeat;
+      background-attachment: fixed;
+      overflow-x: hidden;
+      isolation: isolate;
+    }
+
+    body::before,
+    body::after {
+      content: none;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      width: min(1460px, 100%);
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+      padding: 0 0 18px;
+      border-bottom: 1px solid rgba(226, 255, 255, 0.68);
+    }
+
+    .brand {
+      display: grid;
+      gap: 4px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      color: #f3ffff;
+      font-size: clamp(1.6rem, 3vw, 2.5rem);
+      line-height: 1.05;
+      letter-spacing: 0;
+      font-weight: 760;
+      text-shadow: 0 2px 14px rgba(0, 20, 24, 0.46);
+    }
+
+    .brand p {
+      margin: 0;
+      color: rgba(231, 253, 253, 0.86);
+      max-width: 760px;
+      line-height: 1.45;
+      text-shadow: 0 1px 10px rgba(0, 20, 24, 0.42);
+    }
+
+    .status-pill {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(32, 122, 75, 0.12);
+    }
+
+    .status-dot.busy {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px rgba(160, 100, 20, 0.13);
+    }
+
+    .status-dot.error {
+      background: var(--red);
+      box-shadow: 0 0 0 4px rgba(185, 68, 68, 0.13);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 20px;
+      padding-top: 20px;
+      align-items: start;
+    }
+
+    .layout > *,
+    .main,
+    .surface,
+    .toolbar,
+    .chart-panel,
+    .chart-wrap {
+      min-width: 0;
+    }
+
+    .surface {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel {
+      padding: 16px;
+    }
+
+    .panel + .panel {
+      border-top: 1px solid var(--line);
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    h2,
+    h3 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 1rem;
+    }
+
+    h3 {
+      font-size: 0.95rem;
+    }
+
+    .form {
+      display: grid;
+      gap: 10px;
+      position: relative;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 650;
+    }
+
+    .input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    input[type="text"] {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      padding: 10px 11px;
+      background: #fbfdfd;
+      color: var(--text);
+      outline: 0;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 124, 137, 0.15);
+    }
+
+    .btn {
+      min-height: 41px;
+      border-radius: var(--radius);
+      padding: 9px 12px;
+      cursor: pointer;
+      color: #ffffff;
+      background: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 700;
+      line-height: 1;
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+
+    .btn:hover {
+      background: var(--accent-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      transform: none;
+    }
+
+    .btn.secondary {
+      color: var(--text);
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+    }
+
+    .btn.secondary:hover {
+      background: #e3ecee;
+    }
+
+    .btn.icon {
+      width: 38px;
+      min-height: 38px;
+      padding: 0;
+      font-size: 1rem;
+    }
+
+    .suggestions {
+      position: absolute;
+      z-index: 10;
+      top: 72px;
+      left: 0;
+      right: 78px;
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 16px 34px rgba(25, 43, 49, 0.16);
+      overflow: hidden;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .suggestions.visible {
+      display: block;
+    }
+
+    .suggestions button {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      cursor: pointer;
+      background: #ffffff;
+      color: var(--text);
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .suggestions button:hover {
+      background: var(--accent-soft);
+    }
+
+    .favorites {
+      display: grid;
+      gap: 8px;
+    }
+
+    .favorite {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: start;
+      background: #fbfdfd;
+    }
+
+    .favorite input {
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .favorite-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .favorite-name {
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+
+    .favorite-meta {
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .color-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: -1px;
+      background: var(--accent);
+    }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: #fbfdfd;
+      line-height: 1.45;
+    }
+
+    .main {
+      display: grid;
+      gap: 16px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .metric-note {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+
+    .chart-panel {
+      display: grid;
+      grid-template-rows: auto minmax(360px, 58vh) auto;
+      min-height: 520px;
+      overflow: hidden;
+    }
+
+    .chart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      justify-content: flex-end;
+    }
+
+    .chart-wrap {
+      position: relative;
+      min-width: 0;
+      min-height: 360px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.92), rgba(243,251,252,0.88));
+      backdrop-filter: blur(2px);
+    }
+
+    .chart-canvas-frame {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .tooltip {
+      position: absolute;
+      display: none;
+      pointer-events: none;
+      min-width: 190px;
+      max-width: 260px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow: 0 16px 34px rgba(25, 43, 49, 0.18);
+      padding: 10px;
+      color: var(--text);
+      font-size: 0.86rem;
+      line-height: 1.4;
+      z-index: 6;
+    }
+
+    .tooltip strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .chart-foot {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 16px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .series-key {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .key-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .key-line {
+      width: 22px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .key-line.dashed {
+      background: repeating-linear-gradient(90deg, var(--muted), var(--muted) 5px, transparent 5px, transparent 9px);
+    }
+
+    .key-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 2px solid var(--accent);
+      background: #ffffff;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+    }
+
+    .detail-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      min-height: 170px;
+    }
+
+    .detail-card header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+    }
+
+    .detail-card h3 {
+      overflow-wrap: anywhere;
+    }
+
+    .badge {
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--muted);
+      padding: 4px 8px;
+      font-size: 0.78rem;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .facts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .fact {
+      display: grid;
+      gap: 2px;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .fact strong {
+      font-size: 1rem;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .warning {
+      color: var(--amber);
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+      font-size: 0.83rem;
+      line-height: 1.35;
+    }
+
+    .error-text {
+      color: var(--red);
+    }
+
+    .loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      border: 2px solid var(--line);
+      border-top-color: var(--accent);
+      animation: spin 850ms linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes waterDrift {
+      0% {
+        transform: translate3d(-1.6%, -1.1%, 0) rotate(-1deg) scale(1.02);
+        background-position: 0 0, 42px 18px, 0 0;
+      }
+
+      100% {
+        transform: translate3d(1.8%, 1.4%, 0) rotate(1deg) scale(1.04);
+        background-position: 126px 72px, -58px 116px, 34px -48px;
+      }
+    }
+
+    @keyframes waterPulse {
+      0% {
+        transform: translate3d(1.2%, -0.8%, 0) scale(1);
+        opacity: 0.58;
+      }
+
+      100% {
+        transform: translate3d(-1.4%, 1.2%, 0) scale(1.035);
+        opacity: 0.78;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body::before,
+      body::after,
+      .spinner {
+        animation: none;
+      }
+    }
+
+    @media (max-width: 980px) {
+      .layout,
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .toolbar {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .toolbar-actions {
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .app {
+        width: calc(100vw - 28px);
+        max-width: calc(100vw - 28px);
+        margin: 0 14px;
+        padding: 14px 0;
+      }
+
+      html,
+      body {
+        overflow-x: hidden;
+      }
+
+      .app,
+      .topbar,
+      .layout,
+      .layout > *,
+      .sidebar,
+      .main,
+      .surface,
+      .toolbar,
+      .chart-panel,
+      .details-grid {
+        width: 100%;
+        max-width: 100%;
+      }
+
+      .surface,
+      .toolbar,
+      .chart-panel {
+        max-width: calc(100vw - 28px);
+      }
+
+      .topbar {
+        gap: 12px;
+        padding-bottom: 14px;
+      }
+
+      .brand h1 {
+        font-size: 2rem;
+      }
+
+      .brand p {
+        font-size: 0.95rem;
+      }
+
+      .status-pill {
+        justify-self: start;
+        min-height: 34px;
+        padding: 7px 10px;
+      }
+
+      .layout {
+        gap: 14px;
+        padding-top: 14px;
+      }
+
+      .sidebar {
+        gap: 0;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .input-row,
+      .facts {
+        grid-template-columns: 1fr;
+      }
+
+      .btn {
+        width: 100%;
+        min-height: 44px;
+      }
+
+      .btn.icon {
+        width: 40px;
+        min-height: 40px;
+      }
+
+      .panel-title .btn.icon,
+      .favorite .btn.icon {
+        width: 40px;
+      }
+
+      .favorite {
+        grid-template-columns: auto minmax(0, 1fr);
+        padding-right: 10px;
+      }
+
+      .favorite .btn.icon {
+        position: static;
+        grid-column: 2;
+        justify-self: start;
+        margin-top: 4px;
+        width: 36px;
+        min-height: 36px;
+      }
+
+      .toolbar {
+        padding: 12px;
+      }
+
+      .toolbar-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+      }
+
+      .chart-panel {
+        grid-template-rows: auto 420px auto;
+        min-height: 520px;
+      }
+
+      .chart-head {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 12px;
+      }
+
+      .legend {
+        justify-content: flex-start;
+      }
+
+      .chart-foot {
+        grid-template-columns: 1fr;
+        padding: 10px 12px 12px;
+      }
+
+      .details-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-card {
+        min-height: auto;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .app {
+        width: calc(100vw - 24px);
+        max-width: calc(100vw - 24px);
+        margin: 0 12px;
+        padding: 12px 0;
+      }
+
+      .surface,
+      .toolbar,
+      .metric,
+      .chart-panel {
+        max-width: calc(100vw - 24px);
+      }
+
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>SMHI Flow Tracker</h1>
+        <p>SMHI Hydronu + hydrological observations.</p>
+      </div>
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Ready</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="surface sidebar">
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Add station</h2>
+          </div>
+          <form class="form" id="addForm" autocomplete="off">
+            <label for="stationInput">Hydronu station id</label>
+            <div class="input-row">
+              <input id="stationInput" name="stationInput" type="text" inputmode="numeric" placeholder="Example: 1">
+              <button class="btn" type="submit">Add</button>
+            </div>
+            <div class="suggestions" id="suggestions"></div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Favorites</h2>
+            <button class="btn secondary icon" id="selectAllBtn" type="button" title="Select all">All</button>
+          </div>
+          <div class="favorites" id="favorites"></div>
+        </section>
+      </aside>
+
+      <section class="main">
+        <div class="toolbar">
+          <div>
+            <h2>Combined flow graph</h2>
+            <div class="metric-note" id="productionTime">No station loaded</div>
+          </div>
+          <div class="toolbar-actions">
+            <button class="btn secondary" id="refreshBtn" type="button">Refresh</button>
+            <button class="btn secondary" id="clearBtn" type="button">Clear selection</button>
+          </div>
+        </div>
+
+        <section class="surface chart-panel">
+          <div class="chart-head">
+            <h2>Flow level, m3/s</h2>
+            <div class="legend" id="legend"></div>
+          </div>
+          <div class="chart-wrap" id="chartWrap">
+            <div class="chart-canvas-frame">
+              <canvas id="chart" aria-label="Combined flow graph"></canvas>
+              <div class="tooltip" id="tooltip"></div>
+            </div>
+          </div>
+          <div class="chart-foot">
+            <div class="series-key">
+              <span class="key-item"><span class="key-line"></span>Model history</span>
+              <span class="key-item"><span class="key-line dashed"></span>Hydronu forecast</span>
+              <span class="key-item"><span class="key-dot"></span>Observed gauge</span>
+            </div>
+            <div id="chartRange">--</div>
+          </div>
+        </section>
+
+        <section class="details-grid" id="details"></section>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      favorites: [],
+      selected: new Set(),
+      stations: new Map(),
+      hoverPoints: [],
+      hoverTarget: null,
+      loading: false
+    };
+
+    const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4175" : "";
+    const FAVORITES_KEY = "smhi-flow-tracker:favorites:v1";
+
+    const colors = [
+      "#007c89",
+      "#9b4d9a",
+      "#d36a2c",
+      "#207a4b",
+      "#315aa6",
+      "#b94444",
+      "#6d6a20",
+      "#6a4fb0"
+    ];
+
+    let chartFrame = null;
+
+    const els = {
+      addForm: document.getElementById("addForm"),
+      stationInput: document.getElementById("stationInput"),
+      suggestions: document.getElementById("suggestions"),
+      favorites: document.getElementById("favorites"),
+      selectAllBtn: document.getElementById("selectAllBtn"),
+      refreshBtn: document.getElementById("refreshBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      statusPill: document.getElementById("statusPill"),
+      statusDot: document.getElementById("statusDot"),
+      statusText: document.getElementById("statusText"),
+      chart: document.getElementById("chart"),
+      chartWrap: document.getElementById("chartWrap"),
+      tooltip: document.getElementById("tooltip"),
+      legend: document.getElementById("legend"),
+      chartRange: document.getElementById("chartRange"),
+      productionTime: document.getElementById("productionTime"),
+      details: document.getElementById("details")
+    };
+
+    function setStatus(text, mode = "ready") {
+      els.statusText.textContent = text;
+      els.statusDot.className = "status-dot";
+      if (mode !== "ready") {
+        els.statusDot.classList.add(mode);
+      }
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: {
+          "Content-Type": "application/json"
+        },
+        ...options
+      });
+
+      if (!response.ok) {
+        let message = response.statusText;
+        try {
+          const payload = await response.json();
+          message = payload.error || message;
+        } catch (error) {
+          message = response.statusText;
+        }
+        throw new Error(message);
+      }
+
+      if (response.status === 204) {
+        return null;
+      }
+
+      return response.json();
+    }
+
+    function sanitizeId(value) {
+      return String(value || "").trim().replace(/[^\d]/g, "");
+    }
+
+    function formatFlow(value) {
+      if (!Number.isFinite(value)) {
+        return "--";
+      }
+      if (Math.abs(value) >= 100) {
+        return value.toFixed(0);
+      }
+      if (Math.abs(value) >= 10) {
+        return value.toFixed(1);
+      }
+      if (Math.abs(value) >= 1) {
+        return value.toFixed(2);
+      }
+      return value.toFixed(3);
+    }
+
+    function formatDate(ms, includeTime = false) {
+      if (!Number.isFinite(ms)) {
+        return "--";
+      }
+      const options = includeTime
+        ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+        : { month: "short", day: "numeric" };
+      return new Intl.DateTimeFormat(undefined, options).format(new Date(ms));
+    }
+
+    function formatProduction(value) {
+      if (!value) {
+        return "No production timestamp";
+      }
+      const raw = String(value);
+      if (!/^\d{12}$/.test(raw)) {
+        return `Production: ${raw}`;
+      }
+      const date = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+      const time = `${raw.slice(8, 10)}:${raw.slice(10, 12)}`;
+      return `Hydronu production: ${date} ${time}`;
+    }
+
+    function stationColor(subid) {
+      const index = state.favorites.findIndex((item) => item.subid === subid);
+      return colors[Math.max(index, 0) % colors.length];
+    }
+
+    function readLocalFavorites() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function writeLocalFavorites(favorites) {
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+    }
+
+    async function loadFavorites() {
+      let favorites = readLocalFavorites();
+      const canMigrateServerFavorites =
+        API_BASE === "" && ["127.0.0.1", "localhost"].includes(window.location.hostname);
+      if (!favorites.length && canMigrateServerFavorites) {
+        try {
+          favorites = await api("/api/favorites");
+          writeLocalFavorites(favorites);
+        } catch (error) {
+          favorites = [];
+        }
+      }
+      state.favorites = favorites;
+      favorites.forEach((favorite) => state.selected.add(favorite.subid));
+      renderFavorites();
+      await loadSelectedStations();
+    }
+
+    async function addFavorite(subid) {
+      const favorite = {
+        subid,
+        label: `Station ${subid}`,
+        addedAt: new Date().toISOString()
+      };
+      if (!state.favorites.some((item) => item.subid === favorite.subid)) {
+        state.favorites.push(favorite);
+        writeLocalFavorites(state.favorites);
+      }
+      state.selected.add(favorite.subid);
+      renderFavorites();
+      await loadStation(favorite.subid, true);
+      renderAll();
+    }
+
+    async function removeFavorite(subid) {
+      state.favorites = state.favorites.filter((favorite) => favorite.subid !== subid);
+      writeLocalFavorites(state.favorites);
+      state.selected.delete(subid);
+      state.stations.delete(subid);
+      renderFavorites();
+      renderAll();
+    }
+
+    async function loadStation(subid, force = false) {
+      if (!force && state.stations.has(subid)) {
+        return state.stations.get(subid);
+      }
+      const station = await api(`/api/station/${encodeURIComponent(subid)}`);
+      state.stations.set(subid, station);
+      return station;
+    }
+
+    async function loadSelectedStations(force = false) {
+      const selectedIds = state.favorites
+        .filter((favorite) => state.selected.has(favorite.subid))
+        .map((favorite) => favorite.subid);
+
+      if (selectedIds.length === 0) {
+        renderAll();
+        return;
+      }
+
+      state.loading = true;
+      setStatus("Loading SMHI data", "busy");
+      renderFavorites();
+
+      const results = await Promise.allSettled(selectedIds.map((subid) => loadStation(subid, force)));
+      const rejected = results.find((result) => result.status === "rejected");
+      state.loading = false;
+
+      if (rejected) {
+        setStatus(rejected.reason.message, "error");
+      } else {
+        setStatus("Ready");
+      }
+
+      renderFavorites();
+      renderAll();
+    }
+
+    function renderFavorites() {
+      els.favorites.innerHTML = "";
+
+      if (state.favorites.length === 0) {
+        els.favorites.innerHTML = '<div class="empty">No favorites saved.</div>';
+        return;
+      }
+
+      state.favorites.forEach((favorite) => {
+        const station = state.stations.get(favorite.subid);
+        const item = document.createElement("article");
+        item.className = "favorite";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = state.selected.has(favorite.subid);
+        checkbox.disabled = state.loading;
+        checkbox.addEventListener("change", async () => {
+          if (checkbox.checked) {
+            state.selected.add(favorite.subid);
+          } else {
+            state.selected.delete(favorite.subid);
+          }
+          renderFavorites();
+          await loadSelectedStations();
+        });
+
+        const main = document.createElement("div");
+        main.className = "favorite-main";
+        const name = document.createElement("div");
+        name.className = "favorite-name";
+        name.innerHTML = `<span class="color-dot" style="background:${stationColor(favorite.subid)}"></span>Station ${favorite.subid}`;
+        const meta = document.createElement("div");
+        meta.className = "favorite-meta";
+        if (station && station.observedStation) {
+          meta.textContent = `${station.observedStation.name} · ${station.observedStation.distanceKm.toFixed(1)} km`;
+        } else if (station && station.error) {
+          meta.textContent = station.error;
+        } else {
+          meta.textContent = "Waiting";
+        }
+        main.append(name, meta);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn secondary icon";
+        remove.title = "Remove";
+        remove.innerHTML = "&times;";
+        remove.addEventListener("click", () => removeFavorite(favorite.subid).catch(handleError));
+
+        item.append(checkbox, main, remove);
+        els.favorites.appendChild(item);
+      });
+    }
+
+    function selectedStations() {
+      return state.favorites
+        .filter((favorite) => state.selected.has(favorite.subid))
+        .map((favorite) => state.stations.get(favorite.subid))
+        .filter(Boolean);
+    }
+
+    function renderAll() {
+      renderProductionTime();
+      renderLegend();
+      queueChartRender();
+      renderDetails();
+    }
+
+    function queueChartRender() {
+      if (chartFrame) {
+        cancelAnimationFrame(chartFrame);
+      }
+      chartFrame = requestAnimationFrame(() => {
+        chartFrame = null;
+        renderChart();
+      });
+    }
+
+    function renderProductionTime() {
+      const stations = selectedStations();
+      const productionTimes = stations.map((station) => station.productionTime).filter(Boolean);
+      els.productionTime.textContent = productionTimes.length
+        ? formatProduction(productionTimes[0])
+        : "No station loaded";
+    }
+
+    function renderLegend() {
+      const stations = selectedStations();
+      els.legend.innerHTML = "";
+      stations.forEach((station) => {
+        const entry = document.createElement("span");
+        entry.innerHTML = `<span class="color-dot" style="background:${stationColor(station.subid)}"></span>${station.label}`;
+        els.legend.appendChild(entry);
+      });
+    }
+
+    function collectChartSeries() {
+      const stations = selectedStations();
+      const series = [];
+
+      stations.forEach((station) => {
+        const color = stationColor(station.subid);
+        series.push({
+          station,
+          type: "history",
+          label: `${station.label} model history`,
+          color,
+          points: station.modelHistory
+        });
+        series.push({
+          station,
+          type: "forecast",
+          label: `${station.label} forecast`,
+          color,
+          points: station.forecast
+        });
+        if (station.observedSeries.length) {
+          series.push({
+            station,
+            type: "observed",
+            label: `${station.label} observed`,
+            color,
+            points: station.observedSeries
+          });
+        }
+      });
+
+      return series.filter((item) => item.points.length);
+    }
+
+    function niceTicks(min, max, count = 5) {
+      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+        const value = Number.isFinite(min) ? min : 0;
+        return [value - 1, value, value + 1];
+      }
+
+      const span = max - min;
+      const rawStep = span / Math.max(count - 1, 1);
+      const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const residual = rawStep / magnitude;
+      let step = magnitude;
+      if (residual >= 5) {
+        step = 5 * magnitude;
+      } else if (residual >= 2) {
+        step = 2 * magnitude;
+      }
+
+      const start = Math.floor(min / step) * step;
+      const end = Math.ceil(max / step) * step;
+      const ticks = [];
+      for (let value = start; value <= end + step / 2; value += step) {
+        ticks.push(value);
+      }
+      return ticks;
+    }
+
+    function renderChart() {
+      const canvas = els.chart;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      state.hoverPoints = [];
+
+      const series = collectChartSeries();
+      if (!series.length) {
+        drawEmptyChart(ctx, rect.width, rect.height);
+        els.chartRange.textContent = "--";
+        return;
+      }
+
+      const allPoints = series.flatMap((item) => item.points);
+      const times = allPoints.map((point) => point.time).filter(Number.isFinite);
+      const values = allPoints.map((point) => point.value).filter(Number.isFinite);
+      const minTime = Math.min(...times);
+      const maxTime = Math.max(...times);
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const yPad = Math.max((maxValue - minValue) * 0.12, maxValue === 0 ? 1 : Math.abs(maxValue) * 0.05, 0.001);
+      const domain = {
+        x0: minTime,
+        x1: maxTime,
+        y0: Math.max(0, minValue - yPad),
+        y1: maxValue + yPad
+      };
+
+      const plot = {
+        left: 58,
+        right: rect.width - 22,
+        top: 24,
+        bottom: rect.height - 48
+      };
+
+      const x = (time) => plot.left + ((time - domain.x0) / Math.max(domain.x1 - domain.x0, 1)) * (plot.right - plot.left);
+      const y = (value) => plot.bottom - ((value - domain.y0) / Math.max(domain.y1 - domain.y0, 1)) * (plot.bottom - plot.top);
+
+      drawAxes(ctx, plot, domain, x, y);
+      drawTodayMarker(ctx, plot, domain, x);
+
+      series.forEach((item) => {
+        drawSeries(ctx, item, x, y);
+      });
+
+      drawHoverMarker(ctx, domain, x, y);
+
+      els.chartRange.textContent = `${formatDate(minTime)} - ${formatDate(maxTime)}`;
+    }
+
+    function drawEmptyChart(ctx, width, height) {
+      ctx.save();
+      ctx.fillStyle = "#5f7076";
+      ctx.font = "600 15px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("No selected stations", width / 2, height / 2);
+      ctx.restore();
+    }
+
+    function drawAxes(ctx, plot, domain, x, y) {
+      ctx.save();
+      ctx.strokeStyle = "#ccd7db";
+      ctx.lineWidth = 1;
+      ctx.fillStyle = "#5f7076";
+      ctx.font = "12px system-ui, sans-serif";
+
+      const yTicks = niceTicks(domain.y0, domain.y1, 5);
+      let lastTickY = -Infinity;
+      yTicks.forEach((tick) => {
+        const py = y(tick);
+        if (py < plot.top - 1 || py > plot.bottom + 1 || Math.abs(py - lastTickY) < 28) {
+          return;
+        }
+        lastTickY = py;
+        ctx.beginPath();
+        ctx.moveTo(plot.left, py);
+        ctx.lineTo(plot.right, py);
+        ctx.stroke();
+        ctx.fillText(formatFlow(tick), 10, py + 4);
+      });
+
+      const timeTicks = [];
+      const steps = (plot.right - plot.left) < 420 ? 3 : 5;
+      for (let i = 0; i <= steps; i += 1) {
+        timeTicks.push(domain.x0 + ((domain.x1 - domain.x0) * i) / steps);
+      }
+      timeTicks.forEach((tick) => {
+        const px = x(tick);
+        ctx.beginPath();
+        ctx.moveTo(px, plot.top);
+        ctx.lineTo(px, plot.bottom);
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.fillText(formatDate(tick), px, plot.bottom + 24);
+      });
+
+      ctx.strokeStyle = "#9eb0b6";
+      ctx.beginPath();
+      ctx.moveTo(plot.left, plot.top);
+      ctx.lineTo(plot.left, plot.bottom);
+      ctx.lineTo(plot.right, plot.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawTodayMarker(ctx, plot, domain, x) {
+      const now = Date.now();
+      if (now < domain.x0 || now > domain.x1) {
+        return;
+      }
+
+      const px = x(now);
+      ctx.save();
+      ctx.strokeStyle = "#132125";
+      ctx.fillStyle = "#132125";
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.72;
+      ctx.beginPath();
+      ctx.moveTo(px, plot.top);
+      ctx.lineTo(px, plot.bottom);
+      ctx.stroke();
+
+      ctx.globalAlpha = 1;
+      ctx.font = "700 12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Today", px, plot.top - 8);
+      ctx.restore();
+    }
+
+    function drawHoverMarker(ctx, domain, x, y) {
+      const target = state.hoverTarget;
+      if (!target || target.time < domain.x0 || target.time > domain.x1) {
+        return;
+      }
+
+      const px = x(target.time);
+      const py = y(target.value);
+      ctx.save();
+      ctx.strokeStyle = target.color;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(19, 33, 37, 0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(px, py, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawSeries(ctx, item, x, y) {
+      const points = item.points.filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value));
+      if (!points.length) {
+        return;
+      }
+
+      ctx.save();
+      ctx.strokeStyle = item.color;
+      ctx.fillStyle = item.color;
+      ctx.lineWidth = item.type === "observed" ? 2 : 2.4;
+      ctx.globalAlpha = item.type === "forecast" ? 0.82 : 1;
+      ctx.setLineDash(item.type === "forecast" ? [6, 5] : []);
+
+      if (points.length > 1) {
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          const px = x(point.time);
+          const py = y(point.value);
+          if (index === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
+        });
+        ctx.stroke();
+      }
+
+      points.forEach((point) => {
+        const px = x(point.time);
+        const py = y(point.value);
+        const radius = item.type === "observed" ? 4.7 : 3.1;
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.fillStyle = item.type === "observed" ? "#ffffff" : item.color;
+        ctx.fill();
+        ctx.strokeStyle = item.color;
+        ctx.setLineDash([]);
+        ctx.lineWidth = item.type === "observed" ? 2.2 : 1.4;
+        ctx.stroke();
+
+        state.hoverPoints.push({
+          x: px,
+          y: py,
+          point,
+          item
+        });
+      });
+
+      ctx.restore();
+    }
+
+    function renderDetails() {
+      const stations = selectedStations();
+      els.details.innerHTML = "";
+
+      if (!stations.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No station selected.";
+        els.details.appendChild(empty);
+        return;
+      }
+
+      stations.forEach((station) => {
+        const card = document.createElement("article");
+        card.className = "detail-card";
+        const forecastStart = station.forecast[0];
+        const forecastEnd = station.forecast[station.forecast.length - 1];
+        const change = forecastStart && forecastEnd ? forecastEnd.value - forecastStart.value : null;
+        const observed = station.latestObserved;
+        const distance = station.observedStation && Number.isFinite(station.observedStation.distanceKm)
+          ? `${station.observedStation.distanceKm.toFixed(1)} km`
+          : "--";
+        const warning = station.observedStation && station.observedStation.distanceKm > 35
+          ? `<div class="warning">Observed gauge is ${distance} from the Hydronu point.</div>`
+          : "";
+
+        card.innerHTML = `
+          <header>
+            <h3><span class="color-dot" style="background:${stationColor(station.subid)}"></span>${station.label}</h3>
+            <span class="badge">ID ${station.subid}</span>
+          </header>
+          <div class="facts">
+            <div class="fact">
+              <span>Observed</span>
+              <strong>${observed ? `${formatFlow(observed.value)} m3/s` : "--"}</strong>
+            </div>
+            <div class="fact">
+              <span>Forecast end</span>
+              <strong>${forecastEnd ? `${formatFlow(forecastEnd.value)} m3/s` : "--"}</strong>
+            </div>
+            <div class="fact">
+              <span>Change</span>
+              <strong>${Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${formatFlow(change)} m3/s` : "--"}</strong>
+            </div>
+            <div class="fact">
+              <span>Normal</span>
+              <strong>${Number.isFinite(station.normalFlow) ? `${formatFlow(station.normalFlow)} m3/s` : "--"}</strong>
+            </div>
+          </div>
+          <div class="metric-note">
+            ${station.observedStation ? `${station.observedStation.name}, ${distance}` : "No observed station matched"}
+            ${observed ? ` · ${formatDate(observed.time, true)}` : ""}
+          </div>
+          ${warning}
+        `;
+        els.details.appendChild(card);
+      });
+    }
+
+    function handlePointerMove(event) {
+      if (!state.hoverPoints.length) {
+        els.tooltip.style.display = "none";
+        state.hoverTarget = null;
+        return;
+      }
+
+      const rect = els.chart.getBoundingClientRect();
+      const pointer = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+      let nearest = null;
+      let nearestDistance = Infinity;
+      state.hoverPoints.forEach((candidate) => {
+        const distance = Math.hypot(candidate.x - pointer.x, candidate.y - pointer.y);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = candidate;
+        }
+      });
+
+      if (!nearest || nearestDistance > 18) {
+        els.tooltip.style.display = "none";
+        if (state.hoverTarget) {
+          state.hoverTarget = null;
+          queueChartRender();
+        }
+        return;
+      }
+
+      const nextTarget = {
+        time: nearest.point.time,
+        value: nearest.point.value,
+        color: nearest.item.color,
+        label: nearest.item.label,
+        type: nearest.item.type
+      };
+      const changed = !state.hoverTarget
+        || state.hoverTarget.time !== nextTarget.time
+        || state.hoverTarget.value !== nextTarget.value
+        || state.hoverTarget.label !== nextTarget.label
+        || state.hoverTarget.type !== nextTarget.type;
+      state.hoverTarget = nextTarget;
+      if (changed) {
+        queueChartRender();
+      }
+
+      els.tooltip.innerHTML = `
+        <strong>${nearest.item.label}</strong>
+        <div>${formatDate(nearest.point.time, true)}</div>
+        <div>${formatFlow(nearest.point.value)} m3/s</div>
+      `;
+      els.tooltip.style.display = "block";
+      const tooltipWidth = Math.min(260, Math.max(190, els.tooltip.offsetWidth || 220));
+      const tooltipHeight = Math.max(80, els.tooltip.offsetHeight || 92);
+      const offset = 18;
+      let left = pointer.x + offset;
+      let top = pointer.y + offset;
+      if (left + tooltipWidth > rect.width - 8) {
+        left = pointer.x - tooltipWidth - offset;
+      }
+      if (top + tooltipHeight > rect.height - 8) {
+        top = pointer.y - tooltipHeight - offset;
+      }
+      left = Math.min(rect.width - tooltipWidth - 8, Math.max(8, left));
+      top = Math.min(rect.height - tooltipHeight - 8, Math.max(8, top));
+      els.tooltip.style.left = `${left}px`;
+      els.tooltip.style.top = `${top}px`;
+    }
+
+    function handlePointerLeave() {
+      els.tooltip.style.display = "none";
+      if (state.hoverTarget) {
+        state.hoverTarget = null;
+        queueChartRender();
+      }
+    }
+
+    let searchTimer = null;
+    async function updateSuggestions() {
+      const query = sanitizeId(els.stationInput.value);
+      els.suggestions.innerHTML = "";
+      els.suggestions.classList.remove("visible");
+
+      if (!query) {
+        return;
+      }
+
+      try {
+        const payload = await api(`/api/search?q=${encodeURIComponent(query)}`);
+        const suggestions = payload.suggestions || [];
+        if (!suggestions.length) {
+          return;
+        }
+
+        suggestions.slice(0, 8).forEach((suggestion) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.innerHTML = `<span>${suggestion.value}</span><span class="favorite-meta">Hydronu</span>`;
+          button.addEventListener("click", () => {
+            els.stationInput.value = sanitizeId(suggestion.data || suggestion.value);
+            els.suggestions.classList.remove("visible");
+            els.stationInput.focus();
+          });
+          els.suggestions.appendChild(button);
+        });
+        els.suggestions.classList.add("visible");
+      } catch (error) {
+        setStatus(error.message, "error");
+      }
+    }
+
+    function handleError(error) {
+      state.loading = false;
+      setStatus(error.message, "error");
+      renderFavorites();
+    }
+
+    els.addForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const subid = sanitizeId(els.stationInput.value);
+      if (!subid) {
+        setStatus("Enter a station id", "error");
+        return;
+      }
+      try {
+        state.loading = true;
+        setStatus("Adding station", "busy");
+        renderFavorites();
+        await addFavorite(subid);
+        els.stationInput.value = "";
+        els.suggestions.classList.remove("visible");
+        state.loading = false;
+        setStatus("Ready");
+        renderFavorites();
+      } catch (error) {
+        handleError(error);
+      }
+    });
+
+    els.stationInput.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(updateSuggestions, 160);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!els.addForm.contains(event.target)) {
+        els.suggestions.classList.remove("visible");
+      }
+    });
+
+    els.refreshBtn.addEventListener("click", () => {
+      loadSelectedStations(true).catch(handleError);
+    });
+
+    els.clearBtn.addEventListener("click", () => {
+      state.selected.clear();
+      renderFavorites();
+      renderAll();
+    });
+
+    els.selectAllBtn.addEventListener("click", () => {
+      state.favorites.forEach((favorite) => state.selected.add(favorite.subid));
+      loadSelectedStations().catch(handleError);
+    });
+
+    els.chart.addEventListener("pointermove", handlePointerMove);
+    els.chart.addEventListener("pointerleave", handlePointerLeave);
+    window.addEventListener("resize", queueChartRender);
+    if ("ResizeObserver" in window) {
+      new ResizeObserver(queueChartRender).observe(els.chartWrap);
+    }
+
+    loadFavorites().catch(handleError);
+  </script>
+</body>
+</html>
