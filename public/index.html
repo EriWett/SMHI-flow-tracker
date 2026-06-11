@@ -1491,7 +1491,8 @@
         const forecastStart = station.forecast[0];
         const forecastEnd = station.forecast[station.forecast.length - 1];
         const change = forecastStart && forecastEnd ? forecastEnd.value - forecastStart.value : null;
-        const today = new Date();
+        const observed = station.latestObserved;
+		const today = new Date();
 			today.setHours(0, 0, 0, 0);
 			const tomorrow = new Date(today);
 			tomorrow.setDate(tomorrow.getDate() + 1);
