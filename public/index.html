@@ -318,13 +318,13 @@
       border-radius: var(--radius);
       padding: 10px;
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 10px;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 8px;
       align-items: start;
       background: #fbfdfd;
     }
 
-    .favorite input {
+    .favorite > input[type="checkbox"] {
       width: 18px;
       height: 18px;
       margin: 2px 0 0;
@@ -347,6 +347,28 @@
       font-size: 0.84rem;
       line-height: 1.35;
       overflow-wrap: anywhere;
+    }
+
+    .rename-form {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 6px;
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .rename-form input {
+      width: 100%;
+      height: auto;
+      min-width: 0;
+      min-height: 38px;
+      margin: 0;
+      padding: 8px 10px;
+    }
+
+    .rename-form .btn.icon {
+      width: 38px;
+      min-height: 38px;
     }
 
     .color-dot {
@@ -752,6 +774,14 @@
         min-height: 36px;
       }
 
+      .rename-form .btn.icon {
+        grid-column: auto;
+        justify-self: stretch;
+        margin-top: 0;
+        width: 40px;
+        min-height: 40px;
+      }
+
       .toolbar {
         padding: 12px;
       }
@@ -892,6 +922,7 @@
       stations: new Map(),
       hoverPoints: [],
       hoverTarget: null,
+      renaming: null,
       loading: false
     };
 
@@ -1013,6 +1044,26 @@
       return colors[Math.max(index, 0) % colors.length];
     }
 
+    function favoriteFor(subid) {
+      return state.favorites.find((favorite) => favorite.subid === subid) || null;
+    }
+
+    function displayNameFor(subid, fallback = "") {
+      const favorite = favoriteFor(subid);
+      return (favorite && favorite.customName && favorite.customName.trim())
+        || fallback
+        || `Station ${subid}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function readLocalFavorites() {
       try {
         const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
@@ -1048,6 +1099,7 @@
       const favorite = {
         subid,
         label: `Station ${subid}`,
+        customName: "",
         addedAt: new Date().toISOString()
       };
       if (!state.favorites.some((item) => item.subid === favorite.subid)) {
@@ -1065,6 +1117,18 @@
       writeLocalFavorites(state.favorites);
       state.selected.delete(subid);
       state.stations.delete(subid);
+      renderFavorites();
+      renderAll();
+    }
+
+    async function saveFavoriteName(subid, customName) {
+      const favorite = favoriteFor(subid);
+      if (!favorite) {
+        return;
+      }
+      favorite.customName = customName.trim();
+      state.renaming = null;
+      writeLocalFavorites(state.favorites);
       renderFavorites();
       renderAll();
     }
@@ -1137,7 +1201,10 @@
         main.className = "favorite-main";
         const name = document.createElement("div");
         name.className = "favorite-name";
-        name.innerHTML = `<span class="color-dot" style="background:${stationColor(favorite.subid)}"></span>Station ${favorite.subid}`;
+        const dot = document.createElement("span");
+        dot.className = "color-dot";
+        dot.style.background = stationColor(favorite.subid);
+        name.append(dot, document.createTextNode(displayNameFor(favorite.subid, favorite.label)));
         const meta = document.createElement("div");
         meta.className = "favorite-meta";
         if (station && station.observedStation) {
@@ -1149,6 +1216,16 @@
         }
         main.append(name, meta);
 
+        const rename = document.createElement("button");
+        rename.type = "button";
+        rename.className = "btn secondary icon";
+        rename.title = "Rename";
+        rename.innerHTML = "&#9998;";
+        rename.addEventListener("click", () => {
+          state.renaming = favorite.subid;
+          renderFavorites();
+        });
+
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "btn secondary icon";
@@ -1156,7 +1233,41 @@
         remove.innerHTML = "&times;";
         remove.addEventListener("click", () => removeFavorite(favorite.subid).catch(handleError));
 
-        item.append(checkbox, main, remove);
+        item.append(checkbox, main, rename, remove);
+        if (state.renaming === favorite.subid) {
+          const form = document.createElement("form");
+          form.className = "rename-form";
+          const input = document.createElement("input");
+          input.type = "text";
+          input.value = favorite.customName || "";
+          input.placeholder = `Station ${favorite.subid}`;
+          input.setAttribute("aria-label", `Custom name for station ${favorite.subid}`);
+
+          const save = document.createElement("button");
+          save.type = "submit";
+          save.className = "btn icon";
+          save.title = "Save name";
+          save.innerHTML = "&#10003;";
+
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.className = "btn secondary icon";
+          cancel.title = "Cancel";
+          cancel.innerHTML = "&times;";
+          cancel.addEventListener("click", () => {
+            state.renaming = null;
+            renderFavorites();
+          });
+
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            saveFavoriteName(favorite.subid, input.value).catch(handleError);
+          });
+
+          form.append(input, save, cancel);
+          item.appendChild(form);
+          requestAnimationFrame(() => input.focus());
+        }
         els.favorites.appendChild(item);
       });
     }
@@ -1198,7 +1309,7 @@
       els.legend.innerHTML = "";
       stations.forEach((station) => {
         const entry = document.createElement("span");
-        entry.innerHTML = `<span class="color-dot" style="background:${stationColor(station.subid)}"></span>${station.label}`;
+        entry.innerHTML = `<span class="color-dot" style="background:${stationColor(station.subid)}"></span>${escapeHtml(displayNameFor(station.subid, station.label))}`;
         els.legend.appendChild(entry);
       });
     }
@@ -1209,17 +1320,18 @@
 
       stations.forEach((station) => {
         const color = stationColor(station.subid);
+        const displayName = displayNameFor(station.subid, station.label);
         series.push({
           station,
           type: "history",
-          label: `${station.label} model history`,
+          label: `${displayName} model history`,
           color,
           points: station.modelHistory
         });
         series.push({
           station,
           type: "forecast",
-          label: `${station.label} forecast`,
+          label: `${displayName} forecast`,
           color,
           points: station.forecast
         });
@@ -1227,7 +1339,7 @@
           series.push({
             station,
             type: "observed",
-            label: `${station.label} observed`,
+            label: `${displayName} observed`,
             color,
             points: station.observedSeries
           });
@@ -1509,7 +1621,7 @@
 
         card.innerHTML = `
           <header>
-            <h3><span class="color-dot" style="background:${stationColor(station.subid)}"></span>${station.label}</h3>
+            <h3><span class="color-dot" style="background:${stationColor(station.subid)}"></span>${escapeHtml(displayNameFor(station.subid, station.label))}</h3>
             <span class="badge">ID ${station.subid}</span>
           </header>
           <div class="fact">
