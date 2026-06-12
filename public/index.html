@@ -761,15 +761,15 @@
       }
 
       .favorite {
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
         padding-right: 10px;
       }
 
       .favorite .btn.icon {
         position: static;
-        grid-column: 2;
-        justify-self: start;
-        margin-top: 4px;
+        grid-column: auto;
+        justify-self: end;
+        margin-top: 0;
         width: 36px;
         min-height: 36px;
       }
