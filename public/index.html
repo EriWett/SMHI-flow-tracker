@@ -221,7 +221,23 @@
       outline: 0;
     }
 
+    input[type="number"] {
+      min-width: 0;
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      padding: 10px 11px;
+      background: #fbfdfd;
+      color: var(--text);
+      outline: 0;
+    }
+
     input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 124, 137, 0.15);
+    }
+
+    input[type="number"]:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(0, 124, 137, 0.15);
     }
@@ -318,10 +334,16 @@
       border-radius: var(--radius);
       padding: 10px;
       display: grid;
-      grid-template-columns: auto 1fr auto auto;
+      grid-template-columns: auto 1fr auto auto auto;
       gap: 8px;
       align-items: start;
       background: #fbfdfd;
+    }
+
+    .favorite.in-range {
+      border-color: #d9ad39;
+      background: linear-gradient(135deg, #f3fff6 0%, #fff9e5 100%);
+      box-shadow: 0 0 0 3px rgba(217, 173, 57, 0.18);
     }
 
     .favorite > input[type="checkbox"] {
@@ -369,6 +391,46 @@
     .rename-form .btn.icon {
       width: 38px;
       min-height: 38px;
+    }
+
+    .range-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+      gap: 6px;
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .range-form input {
+      min-width: 0;
+      min-height: 38px;
+      margin: 0;
+      padding: 8px 10px;
+    }
+
+    .range-form .btn.icon {
+      width: 38px;
+      min-height: 38px;
+    }
+
+    .range-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      border-radius: 999px;
+      border: 1px solid #d7a72d;
+      background: #fff3c2;
+      color: #614607;
+      padding: 3px 7px;
+      font-size: 0.74rem;
+      font-weight: 780;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .favorite-name .range-badge {
+      margin-left: 6px;
+      vertical-align: 1px;
     }
 
     .color-dot {
@@ -547,6 +609,12 @@
       min-height: 170px;
     }
 
+    .detail-card.in-range {
+      border-color: #d9ad39;
+      background: linear-gradient(135deg, rgba(247, 255, 247, 0.96), rgba(255, 248, 222, 0.94));
+      box-shadow: 0 0 0 3px rgba(217, 173, 57, 0.16);
+    }
+
     .detail-card header {
       display: flex;
       justify-content: space-between;
@@ -556,6 +624,14 @@
 
     .detail-card h3 {
       overflow-wrap: anywhere;
+    }
+
+    .card-badges {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
     }
 
     .badge {
@@ -761,7 +837,7 @@
       }
 
       .favorite {
-        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        grid-template-columns: auto minmax(0, 1fr) auto auto auto;
         padding-right: 10px;
       }
 
@@ -774,7 +850,8 @@
         min-height: 36px;
       }
 
-      .rename-form .btn.icon {
+      .rename-form .btn.icon,
+      .range-form .btn.icon {
         grid-column: auto;
         justify-self: stretch;
         margin-top: 0;
@@ -923,6 +1000,7 @@
       hoverPoints: [],
       hoverTarget: null,
       renaming: null,
+      editingRange: null,
       loading: false
     };
 
@@ -1055,6 +1133,72 @@
         || `Station ${subid}`;
     }
 
+    function parseOptionalFlow(value) {
+      const trimmed = String(value || "").trim().replace(",", ".");
+      if (!trimmed) {
+        return null;
+      }
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : NaN;
+    }
+
+    function preferredRangeFor(subid) {
+      const favorite = favoriteFor(subid);
+      if (!favorite) {
+        return null;
+      }
+      const min = Number(favorite.preferredMin);
+      const max = Number(favorite.preferredMax);
+      const hasMin = Number.isFinite(min);
+      const hasMax = Number.isFinite(max);
+      if (!hasMin && !hasMax) {
+        return null;
+      }
+      return {
+        min: hasMin ? min : null,
+        max: hasMax ? max : null
+      };
+    }
+
+    function formatPreferredRange(range) {
+      if (!range) {
+        return "";
+      }
+      if (Number.isFinite(range.min) && Number.isFinite(range.max)) {
+        return `Preferred ${formatFlow(range.min)}-${formatFlow(range.max)} m3/s`;
+      }
+      if (Number.isFinite(range.min)) {
+        return `Preferred above ${formatFlow(range.min)} m3/s`;
+      }
+      return `Preferred below ${formatFlow(range.max)} m3/s`;
+    }
+
+    function forecastTodayFor(station) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return station.forecast.find((point) =>
+        point.time >= today.getTime() && point.time < tomorrow.getTime()
+      );
+    }
+
+    function rangeValueForStation(station) {
+      const forecastToday = forecastTodayFor(station);
+      return forecastToday || station.latestObserved || station.latestModel || null;
+    }
+
+    function isInPreferredRange(station) {
+      const range = preferredRangeFor(station.subid);
+      const current = rangeValueForStation(station);
+      if (!range || !current || !Number.isFinite(current.value)) {
+        return false;
+      }
+      const aboveMin = !Number.isFinite(range.min) || current.value >= range.min;
+      const belowMax = !Number.isFinite(range.max) || current.value <= range.max;
+      return aboveMin && belowMax;
+    }
+
     function escapeHtml(value) {
       return String(value)
         .replace(/&/g, "&amp;")
@@ -1100,6 +1244,8 @@
         subid,
         label: `Station ${subid}`,
         customName: "",
+        preferredMin: null,
+        preferredMax: null,
         addedAt: new Date().toISOString()
       };
       if (!state.favorites.some((item) => item.subid === favorite.subid)) {
@@ -1129,6 +1275,31 @@
       favorite.customName = customName.trim();
       state.renaming = null;
       writeLocalFavorites(state.favorites);
+      renderFavorites();
+      renderAll();
+    }
+
+    async function saveFavoriteRange(subid, minValue, maxValue) {
+      const favorite = favoriteFor(subid);
+      if (!favorite) {
+        return;
+      }
+      let min = parseOptionalFlow(minValue);
+      let max = parseOptionalFlow(maxValue);
+      if (Number.isNaN(min) || Number.isNaN(max)) {
+        setStatus("Range needs numbers", "error");
+        return;
+      }
+      if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+        const originalMin = min;
+        min = max;
+        max = originalMin;
+      }
+      favorite.preferredMin = Number.isFinite(min) ? min : null;
+      favorite.preferredMax = Number.isFinite(max) ? max : null;
+      state.editingRange = null;
+      writeLocalFavorites(state.favorites);
+      setStatus("Ready");
       renderFavorites();
       renderAll();
     }
@@ -1181,7 +1352,9 @@
       state.favorites.forEach((favorite) => {
         const station = state.stations.get(favorite.subid);
         const item = document.createElement("article");
-        item.className = "favorite";
+        const range = preferredRangeFor(favorite.subid);
+        const inPreferredRange = station ? isInPreferredRange(station) : false;
+        item.className = `favorite${inPreferredRange ? " in-range" : ""}`;
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
@@ -1205,6 +1378,12 @@
         dot.className = "color-dot";
         dot.style.background = stationColor(favorite.subid);
         name.append(dot, document.createTextNode(displayNameFor(favorite.subid, favorite.label)));
+        if (inPreferredRange) {
+          const badge = document.createElement("span");
+          badge.className = "range-badge";
+          badge.textContent = "In range";
+          name.appendChild(badge);
+        }
         const meta = document.createElement("div");
         meta.className = "favorite-meta";
         if (station && station.observedStation) {
@@ -1215,6 +1394,12 @@
           meta.textContent = "Waiting";
         }
         main.append(name, meta);
+        if (range) {
+          const rangeMeta = document.createElement("div");
+          rangeMeta.className = "favorite-meta";
+          rangeMeta.textContent = formatPreferredRange(range);
+          main.appendChild(rangeMeta);
+        }
 
         const rename = document.createElement("button");
         rename.type = "button";
@@ -1223,6 +1408,18 @@
         rename.innerHTML = "&#9998;";
         rename.addEventListener("click", () => {
           state.renaming = favorite.subid;
+          state.editingRange = null;
+          renderFavorites();
+        });
+
+        const rangeButton = document.createElement("button");
+        rangeButton.type = "button";
+        rangeButton.className = "btn secondary icon";
+        rangeButton.title = "Preferred range";
+        rangeButton.innerHTML = "&#8596;";
+        rangeButton.addEventListener("click", () => {
+          state.editingRange = favorite.subid;
+          state.renaming = null;
           renderFavorites();
         });
 
@@ -1233,7 +1430,7 @@
         remove.innerHTML = "&times;";
         remove.addEventListener("click", () => removeFavorite(favorite.subid).catch(handleError));
 
-        item.append(checkbox, main, rename, remove);
+        item.append(checkbox, main, rename, rangeButton, remove);
         if (state.renaming === favorite.subid) {
           const form = document.createElement("form");
           form.className = "rename-form";
@@ -1267,6 +1464,49 @@
           form.append(input, save, cancel);
           item.appendChild(form);
           requestAnimationFrame(() => input.focus());
+        }
+        if (state.editingRange === favorite.subid) {
+          const form = document.createElement("form");
+          form.className = "range-form";
+
+          const minInput = document.createElement("input");
+          minInput.type = "text";
+          minInput.inputMode = "decimal";
+          minInput.value = Number.isFinite(favorite.preferredMin) ? String(favorite.preferredMin) : "";
+          minInput.placeholder = "Min";
+          minInput.setAttribute("aria-label", `Minimum preferred flow for station ${favorite.subid}`);
+
+          const maxInput = document.createElement("input");
+          maxInput.type = "text";
+          maxInput.inputMode = "decimal";
+          maxInput.value = Number.isFinite(favorite.preferredMax) ? String(favorite.preferredMax) : "";
+          maxInput.placeholder = "Max";
+          maxInput.setAttribute("aria-label", `Maximum preferred flow for station ${favorite.subid}`);
+
+          const save = document.createElement("button");
+          save.type = "submit";
+          save.className = "btn icon";
+          save.title = "Save range";
+          save.innerHTML = "&#10003;";
+
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.className = "btn secondary icon";
+          cancel.title = "Cancel";
+          cancel.innerHTML = "&times;";
+          cancel.addEventListener("click", () => {
+            state.editingRange = null;
+            renderFavorites();
+          });
+
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            saveFavoriteRange(favorite.subid, minInput.value, maxInput.value).catch(handleError);
+          });
+
+          form.append(minInput, maxInput, save, cancel);
+          item.appendChild(form);
+          requestAnimationFrame(() => minInput.focus());
         }
         els.favorites.appendChild(item);
       });
@@ -1599,19 +1839,14 @@
 
       stations.forEach((station) => {
         const card = document.createElement("article");
-        card.className = "detail-card";
         const forecastStart = station.forecast[0];
         const forecastEnd = station.forecast[station.forecast.length - 1];
         const change = forecastStart && forecastEnd ? forecastEnd.value - forecastStart.value : null;
         const observed = station.latestObserved;
-		const today = new Date();
-			today.setHours(0, 0, 0, 0);
-			const tomorrow = new Date(today);
-			tomorrow.setDate(tomorrow.getDate() + 1);
-
-			const forecastToday = station.forecast.find((point) =>
-			  point.time >= today.getTime() && point.time < tomorrow.getTime()
-			);
+        const forecastToday = forecastTodayFor(station);
+        const range = preferredRangeFor(station.subid);
+        const inPreferredRange = isInPreferredRange(station);
+        card.className = `detail-card${inPreferredRange ? " in-range" : ""}`;
         const distance = station.observedStation && Number.isFinite(station.observedStation.distanceKm)
           ? `${station.observedStation.distanceKm.toFixed(1)} km`
           : "--";
@@ -1622,12 +1857,16 @@
         card.innerHTML = `
           <header>
             <h3><span class="color-dot" style="background:${stationColor(station.subid)}"></span>${escapeHtml(displayNameFor(station.subid, station.label))}</h3>
-            <span class="badge">ID ${station.subid}</span>
+            <div class="card-badges">
+              ${inPreferredRange ? '<span class="range-badge">In range</span>' : ""}
+              <span class="badge">ID ${station.subid}</span>
+            </div>
           </header>
-          <div class="fact">
-			  <span>Forecast today</span>
-			  <strong>${forecastToday ? `${formatFlow(forecastToday.value)} m3/s` : "--"}</strong>
-			</div>
+          <div class="facts">
+            <div class="fact">
+              <span>Forecast today</span>
+              <strong>${forecastToday ? `${formatFlow(forecastToday.value)} m3/s` : "--"}</strong>
+            </div>
             <div class="fact">
               <span>Forecast end</span>
               <strong>${forecastEnd ? `${formatFlow(forecastEnd.value)} m3/s` : "--"}</strong>
@@ -1645,6 +1884,7 @@
             ${station.observedStation ? `${station.observedStation.name}, ${distance}` : "No observed station matched"}
             ${observed ? ` · ${formatDate(observed.time, true)}` : ""}
           </div>
+          ${range ? `<div class="metric-note">${formatPreferredRange(range)}</div>` : ""}
           ${warning}
         `;
         els.details.appendChild(card);
