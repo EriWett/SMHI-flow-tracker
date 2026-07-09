@@ -1148,6 +1148,9 @@
       if (!favorite) {
         return null;
       }
+      if (!favorite.hasPreferredRange) {
+        return null;
+      }
       const min = Number(favorite.preferredMin);
       const max = Number(favorite.preferredMax);
       const hasMin = Number.isFinite(min);
@@ -1209,21 +1212,74 @@
         .replace(/'/g, "&#39;");
     }
 
-    function readLocalFavorites() {
+    function normalizeFavorite(favorite) {
+      const subid = sanitizeId(favorite && favorite.subid);
+      if (!subid) {
+        return null;
+      }
+      const hasSavedRangeFlag = favorite.hasPreferredRange === true;
+      const hasLegacyRange = favorite.hasPreferredRange === undefined
+        && (favorite.preferredMin !== undefined && favorite.preferredMin !== null && favorite.preferredMin !== ""
+          || favorite.preferredMax !== undefined && favorite.preferredMax !== null && favorite.preferredMax !== "");
+      const looksLikePollutedEmptyRange = Number(favorite.preferredMin) === 0
+        && Number(favorite.preferredMax) === 0;
+      const hasPreferredRange = !looksLikePollutedEmptyRange
+        && (hasSavedRangeFlag || hasLegacyRange);
+      return {
+        subid,
+        label: favorite.label || `Station ${subid}`,
+        customName: favorite.customName || "",
+        preferredMin: hasPreferredRange && Number.isFinite(Number(favorite.preferredMin)) ? Number(favorite.preferredMin) : null,
+        preferredMax: hasPreferredRange && Number.isFinite(Number(favorite.preferredMax)) ? Number(favorite.preferredMax) : null,
+        hasPreferredRange,
+        addedAt: favorite.addedAt || new Date().toISOString()
+      };
+    }
+    function readCookieFavorites() {
+      const match = document.cookie
+        .split("; ")
+        .find((item) => item.startsWith(`${FAVORITES_KEY}=`));
+      if (!match) {
+        return [];
+      }
       try {
-        const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+        const parsed = JSON.parse(decodeURIComponent(match.slice(FAVORITES_KEY.length + 1)));
         return Array.isArray(parsed) ? parsed : [];
       } catch (error) {
         return [];
       }
     }
 
+    function writeCookieFavorites(favorites) {
+      const oneYear = 60 * 60 * 24 * 365;
+      document.cookie = `${FAVORITES_KEY}=${encodeURIComponent(JSON.stringify(favorites))}; max-age=${oneYear}; path=/; samesite=lax`;
+    }
+
+    function readLocalFavorites() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch (error) {
+        // Fall back to cookies below.
+      }
+      return readCookieFavorites();
+    }
+
     function writeLocalFavorites(favorites) {
-      localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+      try {
+        localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+      } catch (error) {
+        // Some locked-down/private browsers reject localStorage; keep a cookie fallback.
+      }
+      writeCookieFavorites(favorites);
     }
 
     async function loadFavorites() {
-      let favorites = readLocalFavorites();
+      let favorites = readLocalFavorites()
+        .map(normalizeFavorite)
+        .filter(Boolean);
       const canMigrateServerFavorites =
         API_BASE === "" && ["127.0.0.1", "localhost"].includes(window.location.hostname);
       if (!favorites.length && canMigrateServerFavorites) {
@@ -1234,12 +1290,13 @@
           favorites = [];
         }
       }
+      favorites = favorites.map(normalizeFavorite).filter(Boolean);
+      writeLocalFavorites(favorites);
       state.favorites = favorites;
       favorites.forEach((favorite) => state.selected.add(favorite.subid));
       renderFavorites();
       await loadSelectedStations();
     }
-
     async function addFavorite(subid) {
       const favorite = {
         subid,
@@ -1247,6 +1304,7 @@
         customName: "",
         preferredMin: null,
         preferredMax: null,
+        hasPreferredRange: false,
         addedAt: new Date().toISOString()
       };
       if (!state.favorites.some((item) => item.subid === favorite.subid)) {
@@ -1298,6 +1356,7 @@
       }
       favorite.preferredMin = Number.isFinite(min) ? min : null;
       favorite.preferredMax = Number.isFinite(max) ? max : null;
+      favorite.hasPreferredRange = Number.isFinite(min) || Number.isFinite(max);
       state.editingRange = null;
       writeLocalFavorites(state.favorites);
       setStatus("Ready");
