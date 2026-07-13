@@ -1007,6 +1007,7 @@
 
     const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4175" : "";
     const FAVORITES_KEY = "smhi-flow-tracker:favorites:v1";
+    const FAVORITES_COOKIE_KEY = "smhi_flow_tracker_favorites_v1";
 
     const colors = [
       "#007c89",
@@ -1236,14 +1237,14 @@
       };
     }
     function readCookieFavorites() {
-      const match = document.cookie
-        .split("; ")
-        .find((item) => item.startsWith(`${FAVORITES_KEY}=`));
-      if (!match) {
-        return [];
-      }
       try {
-        const parsed = JSON.parse(decodeURIComponent(match.slice(FAVORITES_KEY.length + 1)));
+        const match = document.cookie
+          .split("; ")
+          .find((item) => item.startsWith(`${FAVORITES_COOKIE_KEY}=`));
+        if (!match) {
+          return [];
+        }
+        const parsed = JSON.parse(decodeURIComponent(match.slice(FAVORITES_COOKIE_KEY.length + 1)));
         return Array.isArray(parsed) ? parsed : [];
       } catch (error) {
         return [];
@@ -1251,10 +1252,13 @@
     }
 
     function writeCookieFavorites(favorites) {
-      const oneYear = 60 * 60 * 24 * 365;
-      document.cookie = `${FAVORITES_KEY}=${encodeURIComponent(JSON.stringify(favorites))}; max-age=${oneYear}; path=/; samesite=lax`;
+      try {
+        const oneYear = 60 * 60 * 24 * 365;
+        document.cookie = `${FAVORITES_COOKIE_KEY}=${encodeURIComponent(JSON.stringify(favorites))}; max-age=${oneYear}; path=/; samesite=lax`;
+      } catch (error) {
+        // Cookie fallback is optional; never let it break localStorage persistence.
+      }
     }
-
     function readLocalFavorites() {
       try {
         const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
