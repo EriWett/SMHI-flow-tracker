@@ -1,5 +1,7 @@
 const HYDRONU_BASE = "https://vattenwebb.smhi.se/hydronu";
 const HYDROOBS_BASE = "https://opendata-download-hydroobs.smhi.se/api/version/1.0";
+const CLIENT_FAVORITES_COOKIE = "smhi_flow_tracker_server_favorites";
+const CLIENT_FAVORITES_MAX_LENGTH = 3500;
 
 const CACHE_SECONDS = {
   search: 10 * 60,
@@ -16,7 +18,7 @@ const stationCache = {
 function corsHeaders(extra = {}) {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     ...extra
   };
@@ -39,6 +41,44 @@ function cleanSubid(value) {
     throw new Error("Station id must be an integer");
   }
   return subid;
+}
+
+function readCookie(request, name) {
+  const cookieHeader = request.headers.get("Cookie") || "";
+  const cookie = cookieHeader
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(`${name}=`));
+  return cookie ? cookie.slice(name.length + 1) : "";
+}
+
+function normalizeClientSnapshot(value) {
+  if (!value || !Array.isArray(value.favorites)) {
+    return { updatedAt: 0, favorites: [] };
+  }
+  return {
+    updatedAt: Number.isFinite(Number(value.updatedAt)) ? Number(value.updatedAt) : Date.now(),
+    favorites: value.favorites.slice(0, 30)
+  };
+}
+
+function readClientSnapshot(request) {
+  try {
+    const value = readCookie(request, CLIENT_FAVORITES_COOKIE);
+    return value ? normalizeClientSnapshot(JSON.parse(decodeURIComponent(value))) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function clientSnapshotCookie(snapshot) {
+  const value = encodeURIComponent(JSON.stringify(snapshot));
+  if (value.length > CLIENT_FAVORITES_MAX_LENGTH) {
+    throw new Error("Too many favorites to store in the Safari backup");
+  }
+  const oneYear = 60 * 60 * 24 * 365;
+  const expires = new Date(Date.now() + oneYear * 1000).toUTCString();
+  return `${CLIENT_FAVORITES_COOKIE}=${value}; Max-Age=${oneYear}; Expires=${expires}; Path=/; HttpOnly; Secure; SameSite=Lax`;
 }
 
 async function fetchJsonCached(url, ttlSeconds, ctx) {
@@ -278,6 +318,17 @@ async function getStationPayload(subid, ctx) {
 
 async function handleApi(request, ctx) {
   const url = new URL(request.url);
+
+  if (url.pathname === "/api/client-favorites" && request.method === "GET") {
+    return jsonResponse(readClientSnapshot(request) || { updatedAt: 0, favorites: [] });
+  }
+
+  if (url.pathname === "/api/client-favorites" && request.method === "POST") {
+    const snapshot = normalizeClientSnapshot(await request.json());
+    return jsonResponse(snapshot, 200, {
+      "Set-Cookie": clientSnapshotCookie(snapshot)
+    });
+  }
 
   if (request.method === "GET" && url.pathname === "/api/search") {
     const query = cleanSubid(url.searchParams.get("q") || "");
