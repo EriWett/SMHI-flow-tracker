@@ -1008,6 +1008,9 @@
     const API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:4175" : "";
     const FAVORITES_KEY = "smhi-flow-tracker:favorites:v1";
     const FAVORITES_COOKIE_KEY = "smhi_flow_tracker_favorites_v1";
+    const FAVORITES_DB_NAME = "smhi-flow-tracker";
+    const FAVORITES_DB_STORE = "settings";
+    const FAVORITES_DB_KEY = "favorites";
 
     const colors = [
       "#007c89",
@@ -1236,52 +1239,156 @@
         addedAt: favorite.addedAt || new Date().toISOString()
       };
     }
+    function parseFavoritesSnapshot(value) {
+      try {
+        const parsed = typeof value === "string" ? JSON.parse(value) : value;
+        if (Array.isArray(parsed)) {
+          return { updatedAt: 0, favorites: parsed };
+        }
+        if (parsed && Array.isArray(parsed.favorites)) {
+          return {
+            updatedAt: Number.isFinite(Number(parsed.updatedAt)) ? Number(parsed.updatedAt) : 0,
+            favorites: parsed.favorites
+          };
+        }
+      } catch (error) {
+        // Ignore a damaged storage copy and try the other persistence methods.
+      }
+      return null;
+    }
+
+    function createFavoritesSnapshot(favorites) {
+      return {
+        updatedAt: Date.now(),
+        favorites
+      };
+    }
+
     function readCookieFavorites() {
       try {
         const match = document.cookie
           .split("; ")
           .find((item) => item.startsWith(`${FAVORITES_COOKIE_KEY}=`));
         if (!match) {
-          return [];
+          return null;
         }
-        const parsed = JSON.parse(decodeURIComponent(match.slice(FAVORITES_COOKIE_KEY.length + 1)));
-        return Array.isArray(parsed) ? parsed : [];
+        return parseFavoritesSnapshot(decodeURIComponent(match.slice(FAVORITES_COOKIE_KEY.length + 1)));
       } catch (error) {
-        return [];
+        return null;
       }
     }
 
-    function writeCookieFavorites(favorites) {
+    function writeCookieFavorites(snapshot) {
       try {
         const oneYear = 60 * 60 * 24 * 365;
-        document.cookie = `${FAVORITES_COOKIE_KEY}=${encodeURIComponent(JSON.stringify(favorites))}; max-age=${oneYear}; path=/; samesite=lax`;
+        const expires = new Date(Date.now() + oneYear * 1000).toUTCString();
+        const secure = window.location.protocol === "https:" ? "; Secure" : "";
+        document.cookie = `${FAVORITES_COOKIE_KEY}=${encodeURIComponent(JSON.stringify(snapshot))}; Max-Age=${oneYear}; Expires=${expires}; Path=/; SameSite=Lax${secure}`;
       } catch (error) {
         // Cookie fallback is optional; never let it break localStorage persistence.
       }
     }
+
     function readLocalFavorites() {
       try {
-        const parsed = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
+        const value = localStorage.getItem(FAVORITES_KEY);
+        return value === null ? null : parseFavoritesSnapshot(value);
       } catch (error) {
-        // Fall back to cookies below.
+        return null;
       }
-      return readCookieFavorites();
     }
 
-    function writeLocalFavorites(favorites) {
+    function openFavoritesDatabase() {
+      return new Promise((resolve, reject) => {
+        if (!("indexedDB" in window)) {
+          resolve(null);
+          return;
+        }
+        const request = indexedDB.open(FAVORITES_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const database = request.result;
+          if (!database.objectStoreNames.contains(FAVORITES_DB_STORE)) {
+            database.createObjectStore(FAVORITES_DB_STORE);
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function readIndexedFavorites() {
+      let database;
       try {
-        localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+        database = await openFavoritesDatabase();
+        if (!database) {
+          return null;
+        }
+        return await new Promise((resolve) => {
+          const request = database
+            .transaction(FAVORITES_DB_STORE, "readonly")
+            .objectStore(FAVORITES_DB_STORE)
+            .get(FAVORITES_DB_KEY);
+          request.onsuccess = () => resolve(parseFavoritesSnapshot(request.result));
+          request.onerror = () => resolve(null);
+        });
+      } catch (error) {
+        return null;
+      } finally {
+        if (database) {
+          database.close();
+        }
+      }
+    }
+
+    async function writeIndexedFavorites(snapshot) {
+      let database;
+      try {
+        database = await openFavoritesDatabase();
+        if (!database) {
+          return;
+        }
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction(FAVORITES_DB_STORE, "readwrite");
+          transaction.objectStore(FAVORITES_DB_STORE).put(snapshot, FAVORITES_DB_KEY);
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      } catch (error) {
+        // IndexedDB is an extra fallback and can be unavailable in private browsers.
+      } finally {
+        if (database) {
+          database.close();
+        }
+      }
+    }
+
+    async function writeLocalFavorites(favorites) {
+      const snapshot = createFavoritesSnapshot(favorites);
+      try {
+        localStorage.setItem(FAVORITES_KEY, JSON.stringify(snapshot));
       } catch (error) {
         // Some locked-down/private browsers reject localStorage; keep a cookie fallback.
       }
-      writeCookieFavorites(favorites);
+      writeCookieFavorites(snapshot);
+      await writeIndexedFavorites(snapshot);
     }
 
     async function loadFavorites() {
-      let favorites = readLocalFavorites()
+      const snapshots = [
+        readLocalFavorites(),
+        readCookieFavorites(),
+        await readIndexedFavorites()
+      ].filter(Boolean);
+      const newestTimestamp = Math.max(0, ...snapshots.map((snapshot) => snapshot.updatedAt));
+      const newestSnapshots = snapshots.filter((snapshot) => snapshot.updatedAt === newestTimestamp);
+      const snapshot = newestTimestamp > 0
+        ? newestSnapshots[0]
+        : newestSnapshots.find((candidate) => candidate.favorites.length)
+          || snapshots.find((candidate) => candidate.favorites.length)
+          || newestSnapshots[0]
+          || { favorites: [] };
+      let favorites = snapshot.favorites
         .map(normalizeFavorite)
         .filter(Boolean);
       const canMigrateServerFavorites =
@@ -1289,13 +1396,13 @@
       if (!favorites.length && canMigrateServerFavorites) {
         try {
           favorites = await api("/api/favorites");
-          writeLocalFavorites(favorites);
+          await writeLocalFavorites(favorites);
         } catch (error) {
           favorites = [];
         }
       }
       favorites = favorites.map(normalizeFavorite).filter(Boolean);
-      writeLocalFavorites(favorites);
+      await writeLocalFavorites(favorites);
       state.favorites = favorites;
       favorites.forEach((favorite) => state.selected.add(favorite.subid));
       renderFavorites();
@@ -1313,7 +1420,7 @@
       };
       if (!state.favorites.some((item) => item.subid === favorite.subid)) {
         state.favorites.push(favorite);
-        writeLocalFavorites(state.favorites);
+        await writeLocalFavorites(state.favorites);
       }
       state.selected.add(favorite.subid);
       renderFavorites();
@@ -1323,7 +1430,7 @@
 
     async function removeFavorite(subid) {
       state.favorites = state.favorites.filter((favorite) => favorite.subid !== subid);
-      writeLocalFavorites(state.favorites);
+      await writeLocalFavorites(state.favorites);
       state.selected.delete(subid);
       state.stations.delete(subid);
       renderFavorites();
@@ -1337,7 +1444,7 @@
       }
       favorite.customName = customName.trim();
       state.renaming = null;
-      writeLocalFavorites(state.favorites);
+      await writeLocalFavorites(state.favorites);
       renderFavorites();
       renderAll();
     }
@@ -1362,7 +1469,7 @@
       favorite.preferredMax = Number.isFinite(max) ? max : null;
       favorite.hasPreferredRange = Number.isFinite(min) || Number.isFinite(max);
       state.editingRange = null;
-      writeLocalFavorites(state.favorites);
+      await writeLocalFavorites(state.favorites);
       setStatus("Ready");
       renderFavorites();
       renderAll();
