@@ -934,7 +934,7 @@
         <section class="panel">
           <div class="panel-title">
             <h2>Add station</h2>
-            <a href="https://vattenwebb.smhi.se/hydronu/" target="_blank" rel="noopener noreferrer">Find SMHI stations here</a>
+            <a href="https://vattenwebb.smhi.se/hydronu/" target="_blank" rel="noopener noreferrer">Find stations on smhi here</a>
           </div>
           <form class="form" id="addForm" autocomplete="off">
             <label for="stationInput">Hydronu station id</label>
@@ -1363,6 +1363,41 @@
       }
     }
 
+    async function readServerFavorites() {
+      try {
+        const response = await fetch(`${API_BASE}/api/client-favorites`, {
+          method: "GET",
+          headers: { "Accept": "application/json" },
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        if (!response.ok) {
+          return null;
+        }
+        return parseFavoritesSnapshot(await response.json());
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function writeServerFavorites(snapshot) {
+      try {
+        const response = await fetch(`${API_BASE}/api/client-favorites`, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          credentials: "same-origin",
+          cache: "no-store",
+          body: JSON.stringify(snapshot)
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
     async function writeLocalFavorites(favorites) {
       const snapshot = createFavoritesSnapshot(favorites);
       try {
@@ -1371,14 +1406,22 @@
         // Some locked-down/private browsers reject localStorage; keep a cookie fallback.
       }
       writeCookieFavorites(snapshot);
-      await writeIndexedFavorites(snapshot);
+      await Promise.all([
+        writeIndexedFavorites(snapshot),
+        writeServerFavorites(snapshot)
+      ]);
     }
 
     async function loadFavorites() {
+      const [indexedSnapshot, serverSnapshot] = await Promise.all([
+        readIndexedFavorites(),
+        readServerFavorites()
+      ]);
       const snapshots = [
         readLocalFavorites(),
         readCookieFavorites(),
-        await readIndexedFavorites()
+        indexedSnapshot,
+        serverSnapshot
       ].filter(Boolean);
       const newestTimestamp = Math.max(0, ...snapshots.map((snapshot) => snapshot.updatedAt));
       const newestSnapshots = snapshots.filter((snapshot) => snapshot.updatedAt === newestTimestamp);
